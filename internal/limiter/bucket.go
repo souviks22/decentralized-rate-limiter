@@ -3,52 +3,57 @@ package limiter
 import (
 	"sync"
 	"time"
+	"fmt"
 )
 
 type TokenBucket struct {
-	capacity		float64
-	usedTokens		float64
-	usableTokens	float64
-	refillRate		float64
-	lastRefilled	time.Time
-	mutex			sync.Mutex
+	Capacity		float64
+	UsedTokens		float64
+	UsableTokens	float64
+	RefillRate		float64
+	LastRefilled	time.Time
+	Mutex			sync.Mutex
 }
 
-func newTokenBucket(capacity float64, refillRate float64) *TokenBucket {
+func NewTokenBucket(capacity float64, refillRate float64) *TokenBucket {
 	return &TokenBucket{
-		capacity: capacity,
-		usedTokens: 0,
-		usableTokens: capacity,
-		refillRate: refillRate,
-		lastRefilled: time.Now().UTC(),
+		Capacity: capacity,
+		UsedTokens: 0,
+		UsableTokens: capacity,
+		RefillRate: refillRate,
+		LastRefilled: time.Now().UTC(),
 	}
 }
 
 func (tb *TokenBucket) refill() {
 	now := time.Now().UTC()
-	elapsed := now.Sub(tb.lastRefilled).Seconds()
-	tb.usableTokens += elapsed * tb.refillRate
-	tb.usableTokens = min(tb.usedTokens + tb.capacity, tb.usableTokens)
-	tb.lastRefilled = now
+	elapsed := now.Sub(tb.LastRefilled).Seconds()
+	tb.UsableTokens += elapsed * tb.RefillRate
+	tb.UsableTokens = min(tb.UsedTokens + tb.Capacity, tb.UsableTokens)
+	tb.LastRefilled = now
 }
 
 func (tb *TokenBucket) consume() bool {
-	tb.mutex.Lock()
-	defer tb.mutex.Unlock()
+	tb.Mutex.Lock()
+	defer tb.Mutex.Unlock()
 	tb.refill()
-	if tb.usableTokens - tb.usedTokens >= 1 {
-		tb.usedTokens++
+	if tb.UsableTokens - tb.UsedTokens >= 1 {
+		tb.UsedTokens++
 		return true
 	}
 	return false
 }
 
 func (tb *TokenBucket) merge(incoming *TokenBucket) {
-	tb.mutex.Lock()
-	defer tb.mutex.Unlock()
-	tb.usedTokens = max(incoming.usedTokens, tb.usedTokens)
-	tb.usableTokens = max(incoming.usableTokens, tb.usableTokens)
-	if incoming.lastRefilled.After(tb.lastRefilled) {
-		tb.lastRefilled = incoming.lastRefilled
+	tb.Mutex.Lock()
+	defer tb.Mutex.Unlock()
+	tb.UsedTokens = max(incoming.UsedTokens, tb.UsedTokens)
+	tb.UsableTokens = max(incoming.UsableTokens, tb.UsableTokens)
+	if incoming.LastRefilled.After(tb.LastRefilled) {
+		tb.LastRefilled = incoming.LastRefilled
 	}
+}
+
+func (tb *TokenBucket) String() string {
+	return fmt.Sprintf("%f", tb.UsedTokens)
 }
