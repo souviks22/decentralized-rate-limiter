@@ -1,0 +1,27 @@
+networks:
+  p2p:
+    driver: bridge
+
+services:
+  rate-limiter-bootstrap:
+    build: .
+    networks:
+      - p2p
+
+  rate-limiter:
+    build: .
+    networks:
+      - p2p
+    environment:
+      - BOOTSTRAP_PEER=/ip4/172.18.0.2/tcp/35207/p2p/12D3KooWAWNEjWTepg8QbPY7SZzNCHseEMBeAwDGroSCVssg3r8E
+    deploy:
+      replicas: 2
+
+  nginx:
+    image: nginx:latest
+    networks:
+      - p2p
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
