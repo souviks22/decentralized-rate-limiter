@@ -32,6 +32,8 @@ func newCRDT(capacity float64, refillRate float64) *CRDT {
 }
 
 func (crdt *CRDT) getBucket(userId string) *TokenBucket {
+	crdt.mutex.Lock()
+	defer crdt.mutex.Unlock()
 	if crdt.buckets[userId] == nil {
 		crdt.buckets[userId] = NewTokenBucket(crdt.capacity, crdt.refillRate)
 	}
@@ -39,6 +41,8 @@ func (crdt *CRDT) getBucket(userId string) *TokenBucket {
 }
 
 func (crdt *CRDT) broadcast(userId string) {
+	crdt.mutex.Lock()
+	defer crdt.mutex.Unlock()
 	crdt.deltas[userId] = crdt.buckets[userId]
 }
 
@@ -53,11 +57,7 @@ func (crdt *CRDT) serialize() []byte {
 func (crdt *CRDT) deserializeAndMerge(payload []byte) {
 	var deltas map[string]*TokenBucket
 	err := json.Unmarshal(payload, &deltas)
-	if err != nil { 
-		return 
-	}
-	crdt.mutex.Lock()
-	defer crdt.mutex.Unlock()
+	if err != nil { return }
 	for userId := range deltas {
 		crdt.getBucket(userId).merge(deltas[userId])
 	}
