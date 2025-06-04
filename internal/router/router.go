@@ -8,7 +8,6 @@ import (
 
 func Setup() *gin.Engine {
 	r := gin.Default()
-	// r.Use(middleware.Logger())
 	r.Use(middleware.RateLimiter(10, 1))
 	apiGroup := r.Group("/api")
 	{
