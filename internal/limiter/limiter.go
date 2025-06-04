@@ -1,7 +1,7 @@
 package limiter
 
 type DecentralizedRateLimiter struct {
-	crdt	*CRDT
+	crdt *CRDT
 }
 
 func NewRateLimiter(capacity int, refillRate float64) *DecentralizedRateLimiter {
@@ -12,10 +12,5 @@ func NewRateLimiter(capacity int, refillRate float64) *DecentralizedRateLimiter 
 }
 
 func (drt *DecentralizedRateLimiter) AllowRequest(userId string) bool {
-	bucket := drt.crdt.getBucket(userId)
-	allowed := bucket.consume()
-	if allowed {
-		drt.crdt.broadcast(userId)
-	}
-	return allowed
+	return drt.crdt.consume(userId)
 }

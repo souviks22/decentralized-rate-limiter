@@ -2,75 +2,54 @@ package limiter
 
 import (
 	"context"
-	"encoding/json"
-	"sync"
 	"time"
 
 	"github.com/souviks22/decentralized-rate-limiter/internal/p2p"
 )
 
 type CRDT struct {
-	buckets		map[string]*TokenBucket
-	deltas		map[string]*TokenBucket
-	capacity	float64
-	refillRate	float64
-	node		*p2p.Node
-	mutex		sync.Mutex
+	buckets    *BucketSketch
+	capacity   float64
+	refillRate float64
+	node       *p2p.Node
 }
 
 func newCRDT(capacity float64, refillRate float64) *CRDT {
 	p2pNode := p2p.NewNode(context.Background(), "crdt-buckets")
 	crdt := CRDT{
-		buckets: make(map[string]*TokenBucket),
-		deltas: make(map[string]*TokenBucket),
-		capacity: capacity,
+		buckets:    newBucketSketch(capacity, refillRate),
+		capacity:   capacity,
 		refillRate: refillRate,
-		node: p2pNode,
+		node:       p2pNode,
 	}
 	crdt.start()
 	return &crdt
 }
 
-func (crdt *CRDT) getBucket(userId string) *TokenBucket {
-	crdt.mutex.Lock()
-	defer crdt.mutex.Unlock()
-	if crdt.buckets[userId] == nil {
-		crdt.buckets[userId] = NewTokenBucket(crdt.capacity, crdt.refillRate)
-	}
-	return crdt.buckets[userId]
-}
-
-func (crdt *CRDT) broadcast(userId string) {
-	crdt.mutex.Lock()
-	defer crdt.mutex.Unlock()
-	crdt.deltas[userId] = crdt.buckets[userId]
+func (crdt *CRDT) consume(userId string) bool {
+	return crdt.buckets.consume(userId)
 }
 
 func (crdt *CRDT) serialize() []byte {
-	crdt.mutex.Lock()
-	defer crdt.mutex.Unlock()
-	payload, _ := json.Marshal(crdt.deltas)
-	crdt.deltas = make(map[string]*TokenBucket)
+	ds := crdt.buckets.getDeltaSketch()
+	payload := ds.encode()
 	return payload
 }
 
-func (crdt *CRDT) deserializeAndMerge(payload []byte) {
-	var deltas map[string]*TokenBucket
-	err := json.Unmarshal(payload, &deltas)
-	if err != nil { return }
-	for userId := range deltas {
-		crdt.getBucket(userId).merge(deltas[userId])
-	}
+func (crdt *CRDT) deserialize(payload []byte) {
+	ds := decode(payload)
+	crdt.buckets.merge(ds)
 }
 
 func (crdt *CRDT) start() {
-	crdt.node.ReadLoop(crdt.deserializeAndMerge)
+	crdt.node.ReadLoop(crdt.deserialize)
 	go func() {
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		for range ticker.C {
-			if len(crdt.deltas) == 0 { continue }
-			crdt.node.Broadcast(crdt.serialize())
+			if crdt.buckets.hasDeltaSketch() {
+				crdt.node.Broadcast(crdt.serialize())
+			}
 		}
 	}()
 }
