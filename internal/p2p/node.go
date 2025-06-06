@@ -15,9 +15,10 @@ import (
 )
 
 type Node struct {
-	Host  peer.ID
-	topic *pubsub.Topic
-	sub   *pubsub.Subscription
+	Host      peer.ID
+	topic     *pubsub.Topic
+	sub       *pubsub.Subscription
+	multiaddr string
 }
 
 const Rendezvous = "decentralized-rate-limiter"
@@ -39,12 +40,14 @@ func NewNode(ctx context.Context, topicName string) *Node {
 	if err != nil {
 		panic(err)
 	}
-	log.Println("P2P node started at:", h.Addrs()[4].String()+"/p2p/"+h.ID().String())
+	address := h.Addrs()[4].String() + "/p2p/" + h.ID().String()
+	log.Println("P2P node started at:", address)
 	setupPeerDiscovery(ctx, h)
 	return &Node{
-		Host:  h.ID(),
-		topic: topic,
-		sub:   sub,
+		Host:      h.ID(),
+		topic:     topic,
+		sub:       sub,
+		multiaddr: address,
 	}
 }
 
