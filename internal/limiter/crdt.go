@@ -4,51 +4,60 @@ import (
 	"context"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/souviks22/decentralized-rate-limiter/internal/p2p"
+	"github.com/souviks22/decentralized-rate-limiter/internal/utils"
 )
 
 type CRDT struct {
-	buckets    *BucketSketch
-	capacity   float64
-	refillRate float64
-	node       *p2p.Node
+	node    *p2p.Node
+	buckets *BucketCache
+	deltas  *lru.Cache[string, *TokenBucket]
 }
 
-func newCRDT(capacity float64, refillRate float64) *CRDT {
+const (
+	MaxBatchSize  = 100
+	BatchInterval = 100 * time.Millisecond
+)
+
+func New(capacity float64, refillRate float64) *CRDT {
 	p2pNode := p2p.NewNode(context.Background(), "crdt-buckets")
+	bucketCache := newBucketCache(p2pNode.Host.String(), capacity, refillRate)
 	crdt := CRDT{
-		buckets:    newBucketSketch(capacity, refillRate),
-		capacity:   capacity,
-		refillRate: refillRate,
-		node:       p2pNode,
+		node:    p2pNode,
+		buckets: bucketCache,
+		deltas:  newCache(MaxBatchSize),
 	}
 	crdt.start()
 	return &crdt
 }
 
-func (crdt *CRDT) consume(userId string) bool {
-	return crdt.buckets.consume(userId)
+func (crdt *CRDT) AllowRequest(userId string) bool {
+	bucket := crdt.buckets.getOrCreateBucket(userId)
+	crdt.deltas.ContainsOrAdd(userId, bucket)
+	go func() {
+		if crdt.deltas.Len() == MaxBatchSize {
+			crdt.node.Broadcast(utils.Encode(toMessage(crdt.deltas)))
+		}
+	}()
+	return bucket.consume()
 }
 
-func (crdt *CRDT) serialize() []byte {
-	ds := crdt.buckets.getDeltaSketch()
-	payload := ds.encode()
-	return payload
-}
-
-func (crdt *CRDT) deserialize(payload []byte) {
-	ds := decode(payload)
-	crdt.buckets.merge(ds)
+func (crdt *CRDT) merge(data []byte) {
+	message := utils.Decode[map[string]*BucketState](data)
+	for userId := range message {
+		crdt.buckets.getOrCreateBucket(userId).merge(message[userId])
+	}
 }
 
 func (crdt *CRDT) start() {
-	crdt.node.ReadLoop(crdt.deserialize)
+	crdt.node.ReadLoop(crdt.merge)
 	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
+		ticker := time.NewTicker(BatchInterval)
 		defer ticker.Stop()
 		for range ticker.C {
-			if crdt.buckets.hasDeltaSketch() {
-				crdt.node.Broadcast(crdt.serialize())
+			if crdt.deltas.Len() > 0 {
+				crdt.node.Broadcast(utils.Encode(toMessage(crdt.deltas)))
 			}
 		}
 	}()

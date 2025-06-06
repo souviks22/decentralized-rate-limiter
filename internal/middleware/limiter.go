@@ -7,8 +7,8 @@ import (
 	"github.com/souviks22/decentralized-rate-limiter/internal/limiter"
 )
 
-func RateLimiter(capacity int, refillRate float64) gin.HandlerFunc {
-	rateLimiter := limiter.NewRateLimiter(capacity, refillRate)
+func RateLimiter(capacity float64, refillRate float64) gin.HandlerFunc {
+	rateLimiter := limiter.New(capacity, refillRate)
 	return func(c *gin.Context) {
 		userId := c.GetHeader("Ping-User-Id")
 		if userId == "" {
