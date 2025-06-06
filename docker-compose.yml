@@ -7,15 +7,19 @@ services:
     build: .
     networks:
       - p2p
+    volumes:
+      - ./data:/data
 
   rate-limiter:
     build: .
     networks:
       - p2p
     environment:
-      - BOOTSTRAP_PEER=/ip4/172.18.0.2/tcp/35207/p2p/12D3KooWAWNEjWTepg8QbPY7SZzNCHseEMBeAwDGroSCVssg3r8E
+      - BOOTSTRAP_PEER=/ip4/172.18.0.2/tcp/46793/p2p/12D3KooWRJncgJ2CCDvha1CLDTdsqDHXc1dR9FsauKXbDmJM3mfW
     deploy:
-      replicas: 2
+      replicas: 3
+    volumes:
+      - ./data:/data
 
   nginx:
     image: nginx:latest
