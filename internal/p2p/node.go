@@ -15,7 +15,7 @@ import (
 )
 
 type Node struct {
-	host  peer.ID
+	Host  peer.ID
 	topic *pubsub.Topic
 	sub   *pubsub.Subscription
 }
@@ -42,7 +42,7 @@ func NewNode(ctx context.Context, topicName string) *Node {
 	log.Println("P2P node started at:", h.Addrs()[4].String()+"/p2p/"+h.ID().String())
 	setupPeerDiscovery(ctx, h)
 	return &Node{
-		host:  h.ID(),
+		Host:  h.ID(),
 		topic: topic,
 		sub:   sub,
 	}
@@ -102,7 +102,7 @@ func (n *Node) ReadLoop(handle func([]byte)) {
 			if err != nil {
 				continue
 			}
-			if msg.ReceivedFrom == n.host {
+			if msg.ReceivedFrom == n.Host {
 				continue
 			}
 			handle(msg.Data)
