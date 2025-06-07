@@ -19,6 +19,7 @@ type Node struct {
 	topic     *pubsub.Topic
 	sub       *pubsub.Subscription
 	multiaddr string
+	dht       *dht.IpfsDHT
 }
 
 const Rendezvous = "decentralized-rate-limiter"
@@ -42,16 +43,17 @@ func NewNode(ctx context.Context, topicName string) *Node {
 	}
 	address := h.Addrs()[4].String() + "/p2p/" + h.ID().String()
 	log.Println("P2P node started at:", address)
-	setupPeerDiscovery(ctx, h)
+	kadDHT := setupPeerDiscovery(ctx, h)
 	return &Node{
 		Host:      h.ID(),
 		topic:     topic,
 		sub:       sub,
 		multiaddr: address,
+		dht:       kadDHT,
 	}
 }
 
-func setupPeerDiscovery(ctx context.Context, h host.Host) {
+func setupPeerDiscovery(ctx context.Context, h host.Host) *dht.IpfsDHT {
 	kadDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeServer))
 	if err != nil {
 		panic(err)
@@ -72,6 +74,7 @@ func setupPeerDiscovery(ctx context.Context, h host.Host) {
 			h.Connect(ctx, p)
 		}
 	}()
+	return kadDHT
 }
 
 func connectToBootstrapPeer(ctx context.Context, h host.Host) {
