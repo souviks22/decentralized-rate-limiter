@@ -48,6 +48,13 @@ func (cache *BucketCache) getOrCreateBucket(userID string) *TokenBucket {
 	return bucket
 }
 
+func (cache *BucketCache) refreshDisk() {
+	for _, userId := range cache.buckets.Keys() {
+		bucket, _ := cache.buckets.Get(userId)
+		cache.disk.Save(userId, utils.Encode(bucket))
+	}
+}
+
 type BucketState struct {
 	UsedTokens   float64
 	UsableTokens float64
