@@ -1,112 +1,126 @@
-# Decentralized Rate Limiter
+# 🌐 Decentralized Rate Limiter
 
-A production-grade **decentralized rate limiter** built in **Go**, using **CRDTs** and **libp2p** for conflict-free state sync across distributed nodes without a central authority. Designed to maintain **eventual consistency**, **fault tolerance**, and **high performance** under heavy load.
+[![Go Report Card](https://goreportcard.com/badge/github.com/souviks22/decentralized-rate-limiter)](https://goreportcard.com/report/github.com/souviks22/decentralized-rate-limiter)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Made with Go](https://img.shields.io/badge/Made%20with-Go-1f425f.svg)](https://golang.org)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
----
-
-## Overview
-
-Traditional rate limiters depend on centralized coordination (e.g., Redis), creating a single point of failure. This project implements a **distributed** approach where each node:
-
-- Tracks request counts locally using **token buckets**.
-- Shares updates using **delta-state CRDTs**.
-- Communicates over **libp2p** to maintain a fully decentralized sparse mesh.
+> A fault-tolerant, decentralized, and CRDT-synced rate limiter for large-scale distributed systems — designed to scale to billions of users with local failover and eventual consistency.
 
 ---
 
-## Architecture
+## 🚀 Features
 
-### Key Components:
+- ⏳ **Token Bucket Algorithm** for burst-friendly traffic control.
+- 🧠 **CRDT-powered synchronization** — conflict-free, peer-to-peer.
+- 💾 **LRU cache with disk persistence** — supports both active and inactive users efficiently.
+- 📡 **libp2p gossip** — decentralized and self-healing.
+- 🔒 **Resilience to partitions and node failure**.
 
-| Component     | Role |
-|---------------|------|
-| `CRDT`        | Merges token buckets using delta-state conflict-free logic. |
-| `TokenBucket` | Rate limits for individual users. |
-| `libp2p`      | Peer-to-peer communication layer for state sync. |
-| `Gin`         | HTTP server handling user requests and applying rate limiting middleware. |
+---
 
-### Design Diagram:
+## 📸 Architecture
 
 ```
-       ┌─────────────┐
-       │   Client    │
-       └─────┬───────┘
-             │
-       ┌─────▼──────┐
-       │  Gin API   │
-       └─────┬──────┘
-             │
-   ┌─────────▼─────────┐
-   │ RateLimiter (CRDT)│
-   └─────────┬─────────┘
-             │
-       ┌─────▼─────┐
-       │  libp2p   │<─── Peers
-       └───────────┘
+                           ┌──────────────────────────┐
+                           │      Client Request      │
+                           └────────────┬─────────────┘
+                                        │
+                                        ▼
+                         ┌────────────────────────────────┐
+                         │    Peer Node (e.g., Node A)    │
+                         │ ────────────────────────────── │
+                         │  1. Receive userID request     │
+                         │  2. Check in-memory LRU cache  │
+                         │  3. If miss, load from disk    │
+                         │  4. Call TokenBucket.consume() │
+                         │  5. Add to CRDT delta cache    │
+                         └────────────┬───────────────────┘
+                                      │
+        ┌─────────────────────────────┼────────────────────────────┐
+        ▼                             ▼                            ▼
+┌────────────────┐         ┌──────────────────────┐        ┌────────────────────┐
+│ In-Memory LRU  │◄───────▶│ Disk Storage (/data) │        │  CRDT Delta Cache  │
+│  Token Buckets │         └──────────────────────┘        └────────▲───────────┘
+└────▲───────────┘                                           ┌──────┴────────┐
+     │                                                       │ libp2p Gossip │
+     │                                                       └──────┬────────┘
+     │                                                              │
+     │     Broadcast deltas (every 100ms or 100 entries)            │
+     └──────────────────────────────────────────────────────────────┘
+                                                                    │
+                                                 ┌──────────────────┴─────────────────┐
+                                                 ▼                                    ▼
+                                     ┌─────────────────────┐                 ┌─────────────────────┐
+                                     │    Peer Node B      │◄───────────────▶│     Peer Node C     │
+                                     │  (Same architecture)│     P2P Sync    │  (Same architecture)│
+                                     └─────────────────────┘                 └─────────────────────┘
+
 ```
+
+- **Each node** locally limits requests and syncs token deltas with others via gossip.
+- **State merging** is done using CRDT-style max-based reconciliation.
+
 
 ---
 
-## Getting Started
-
-### Prerequisites
-
-- Go 1.21+
-- Docker (optional, for benchmarking)
-
-### Run a Node
+## 🔧 Installation
 
 ```bash
 git clone https://github.com/souviks22/decentralized-rate-limiter.git
 cd decentralized-rate-limiter
-go run cmd/node/main.go
+go mod tidy
+go run main.go
 ````
-It will create a bootstrap node followed by logging its multiaddress. This is the very first server in our decentralized network. Afterwards, run every new server with an environment variable `BOOTSTRAP_PEER` equal to that predefined multiaddress. Each node will automatically attempt to join the libp2p mesh.
+
+> Requires Go 1.20+ and a writable `/data/<node_id>` directory for disk persistence. Optionally, `Docker` configurations for bootstrap node and network nodes are also available.
 
 ---
 
-## Features
+## 🧪 Example Usage
 
-* Fully decentralized token bucket rate limiting
-* CRDT-based eventual consistency
-* Resilient to partial node failures
-* Delta-based broadcasting to reduce network overhead
-* Plug-and-play middleware for Gin-based APIs
+```go
+limiter := limiter.New(100.0, 10.0) // capacity = 100, refillRate = 10 tokens/sec
 
----
-
-## Benchmarking & Metrics
-
-Coming Soon
-
----
-
-## 📂 Project Structure
-
-```
-.
-├── cmd/                # Main entrypoint
-├── internal/
-│   ├── limiter/        # CRDT logic, token buckets
-│   ├── middleware/     # Gin rate limiting middleware
-│   └── p2p/            # libp2p networking code
-├── go.mod
-└── README.md
+if limiter.AllowRequest("user-123") {
+    // ✅ Proceed with request
+} else {
+    // ❌ Rate limited
+}
 ```
 
 ---
 
-## Design Decisions
+## 🧠 Internals
 
-* **CRDTs** were used for safe, conflict-free merges across distributed nodes.
-* **Delta-based sync** to improve efficiency over full state broadcast.
-* **Thread-safe** concurrent access ensured using `sync.Mutex` over shared resources.
-* Modular architecture to allow horizontal scaling and easier testing.
+### 🪣 TokenBucket
+
+* Uses capacity, refill rate, and timestamps to refill tokens.
+* Thread-safe with mutex locks.
+* Supports delta-based `merge()` for CRDT sync.
+
+### 🧠 CRDT
+
+* Batched updates pushed via libp2p `Broadcast()`.
+* Incoming deltas merged every `100ms`.
+* Cold buckets are periodically flushed to disk.
+
+### 🧱 Disk + LRU
+
+* Evicted buckets go to disk for durability.
+* Reloaded lazily when requested again.
+* Guarantees hot-path speed and cold-path persistence.
 
 ---
 
-## Limitations & TODO
+## 📊 Benchmark & Testing
 
-* Memory saving strategy for too many distinct users.
-* Persist buckets across restarts (disk-based storage).
-* Graceful shutdown and state handoff.
+Testing in Progress
+
+---
+
+## 📎 Links
+
+* [libp2p Docs](https://libp2p.io)
+* [CRDTs Explained](https://crdt.tech/)
+* [Go LRU Cache](https://github.com/hashicorp/golang-lru)]
