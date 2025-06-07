@@ -16,8 +16,9 @@ type CRDT struct {
 }
 
 const (
-	MaxBatchSize  = 100
-	BatchInterval = 100 * time.Millisecond
+	MaxBatchSize      = 100
+	BatchInterval     = 100 * time.Millisecond
+	DiskWriteInterval = time.Hour
 )
 
 func New(capacity float64, refillRate float64) *CRDT {
@@ -59,6 +60,13 @@ func (crdt *CRDT) start() {
 			if crdt.deltas.Len() > 0 {
 				crdt.node.Broadcast(utils.Encode(toMessage(crdt.deltas)))
 			}
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(DiskWriteInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			crdt.buckets.refreshDisk()
 		}
 	}()
 }
