@@ -2,6 +2,7 @@ package limiter
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -13,6 +14,7 @@ type CRDT struct {
 	node    *p2p.Node
 	buckets *BucketCache
 	deltas  *lru.Cache[string, *TokenBucket]
+	mutex   sync.Mutex
 }
 
 const (
@@ -34,11 +36,13 @@ func New(capacity float64, refillRate float64) *CRDT {
 }
 
 func (crdt *CRDT) AllowRequest(userId string) bool {
+	crdt.mutex.Lock()
+	defer crdt.mutex.Unlock()
 	bucket := crdt.buckets.getOrCreateBucket(userId)
 	crdt.deltas.ContainsOrAdd(userId, bucket)
 	go func() {
 		if crdt.deltas.Len() == MaxBatchSize {
-			crdt.node.Broadcast(utils.Encode(toMessage(crdt.deltas)))
+			crdt.broadcast()
 		}
 	}()
 	return bucket.consume()
@@ -51,6 +55,12 @@ func (crdt *CRDT) merge(data []byte) {
 	}
 }
 
+func (crdt *CRDT) broadcast() {
+	crdt.mutex.Lock()
+	defer crdt.mutex.Unlock()
+	crdt.node.Broadcast(utils.Encode(toMessage(crdt.deltas)))
+}
+
 func (crdt *CRDT) start() {
 	crdt.node.ReadLoop(crdt.merge)
 	go func() {
@@ -58,7 +68,7 @@ func (crdt *CRDT) start() {
 		defer ticker.Stop()
 		for range ticker.C {
 			if crdt.deltas.Len() > 0 {
-				crdt.node.Broadcast(utils.Encode(toMessage(crdt.deltas)))
+				crdt.broadcast()
 			}
 		}
 	}()
