@@ -6,37 +6,37 @@ import (
 )
 
 type TokenBucket struct {
-	capacity     float64
-	refillRate   float64
-	usedTokens   float64
-	usableTokens float64
-	lastRefilled time.Time
+	Capacity     float64
+	RefillRate   float64
+	UsedTokens   float64
+	UsableTokens float64
+	LastRefilled time.Time
 	mutex        sync.RWMutex
 }
 
 func newTokenBucket(capacity float64, refillRate float64) *TokenBucket {
 	return &TokenBucket{
-		capacity:     capacity,
-		refillRate:   refillRate,
-		usedTokens:   0,
-		usableTokens: capacity,
-		lastRefilled: time.Now().UTC(),
+		Capacity:     capacity,
+		RefillRate:   refillRate,
+		UsedTokens:   0,
+		UsableTokens: capacity,
+		LastRefilled: time.Now().UTC(),
 	}
 }
 
 func (tb *TokenBucket) refill() {
-	elapsed := time.Since(tb.lastRefilled).Seconds()
-	tb.lastRefilled = time.Now().UTC()
-	tb.usableTokens += elapsed * tb.refillRate
-	tb.usableTokens = min(tb.usedTokens+tb.capacity, tb.usableTokens)
+	elapsed := time.Since(tb.LastRefilled).Seconds()
+	tb.LastRefilled = time.Now().UTC()
+	tb.UsableTokens += elapsed * tb.RefillRate
+	tb.UsableTokens = min(tb.UsedTokens+tb.Capacity, tb.UsableTokens)
 }
 
 func (tb *TokenBucket) consume() bool {
 	tb.mutex.Lock()
 	defer tb.mutex.Unlock()
 	tb.refill()
-	if tb.usableTokens-tb.usedTokens > 0 {
-		tb.usedTokens += 1
+	if tb.UsableTokens-tb.UsedTokens > 0 {
+		tb.UsedTokens += 1
 		return true
 	}
 	return false
@@ -48,7 +48,7 @@ func (tb *TokenBucket) merge(incoming *BucketState) {
 	}
 	tb.mutex.Lock()
 	defer tb.mutex.Unlock()
-	tb.usedTokens = max(incoming.UsedTokens, tb.usedTokens)
-	tb.usableTokens = max(incoming.UsableTokens, tb.usableTokens)
-	tb.lastRefilled = time.Unix(max(incoming.LastRefilled.Unix(), tb.lastRefilled.Unix()), 0)
+	tb.UsedTokens = max(incoming.UsedTokens, tb.UsedTokens)
+	tb.UsableTokens = max(incoming.UsableTokens, tb.UsableTokens)
+	tb.LastRefilled = time.Unix(max(incoming.LastRefilled.Unix(), tb.LastRefilled.Unix()), 0)
 }

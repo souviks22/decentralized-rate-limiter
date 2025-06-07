@@ -27,3 +27,16 @@ func TestTokenExhaustion(t *testing.T) {
 		t.Error("Tokens didn't exhaust")
 	}
 }
+
+func TestBucketMerge(t *testing.T) {
+	bucket := newTokenBucket(5, 1)
+	incoming := &BucketState{
+		UsableTokens: 6,
+		UsedTokens:   1,
+		LastRefilled: time.Now().UTC(),
+	}
+	bucket.merge(incoming)
+	if bucket.UsableTokens != 6 || bucket.UsedTokens != 1 {
+		t.Error("Bucket merging failed")
+	}
+}
