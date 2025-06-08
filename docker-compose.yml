@@ -15,7 +15,8 @@ services:
     networks:
       - p2p
     environment:
-      - BOOTSTRAP_PEER=/ip4/172.18.0.2/tcp/46793/p2p/12D3KooWRJncgJ2CCDvha1CLDTdsqDHXc1dR9FsauKXbDmJM3mfW
+      - BOOTSTRAP_PEER=/ip4/172.18.0.2/tcp/40343/p2p/12D3KooWR1yxKWRyVGuNjdnZQegQid8vVm96d2CJhsj8QR4KbReA
+      - METRICS_ENABLED=true
     deploy:
       replicas: 3
     volumes:
