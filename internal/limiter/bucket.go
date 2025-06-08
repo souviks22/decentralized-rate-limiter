@@ -42,13 +42,14 @@ func (tb *TokenBucket) consume() bool {
 	return false
 }
 
-func (tb *TokenBucket) merge(incoming *BucketState) {
+func (tb *TokenBucket) merge(incoming *BucketState) time.Duration {
 	if incoming == nil {
-		return
+		return 0
 	}
 	tb.mutex.Lock()
 	defer tb.mutex.Unlock()
 	tb.UsedTokens = max(incoming.UsedTokens, tb.UsedTokens)
 	tb.UsableTokens = max(incoming.UsableTokens, tb.UsableTokens)
 	tb.LastRefilled = time.Unix(max(incoming.LastRefilled.Unix(), tb.LastRefilled.Unix()), 0)
+	return time.Since(incoming.Timestamp)
 }

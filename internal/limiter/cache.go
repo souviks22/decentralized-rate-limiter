@@ -59,6 +59,7 @@ type BucketState struct {
 	UsedTokens   float64
 	UsableTokens float64
 	LastRefilled time.Time
+	Timestamp    time.Time
 }
 
 func newCache(size int) *lru.Cache[string, *TokenBucket] {
@@ -77,6 +78,7 @@ func toMessage(cache *lru.Cache[string, *TokenBucket]) map[string]*BucketState {
 			UsedTokens:   bucket.UsedTokens,
 			UsableTokens: bucket.UsableTokens,
 			LastRefilled: bucket.LastRefilled,
+			Timestamp:    time.Now(),
 		}
 	}
 	cache.Purge()

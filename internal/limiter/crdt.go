@@ -6,15 +6,18 @@ import (
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/souviks22/decentralized-rate-limiter/internal/metrics"
 	"github.com/souviks22/decentralized-rate-limiter/internal/p2p"
 	"github.com/souviks22/decentralized-rate-limiter/internal/utils"
 )
 
 type CRDT struct {
-	node    *p2p.Node
-	buckets *BucketCache
-	deltas  *lru.Cache[string, *TokenBucket]
-	mutex   sync.Mutex
+	node        *p2p.Node
+	buckets     *BucketCache
+	deltas      *lru.Cache[string, *TokenBucket]
+	mutex       sync.Mutex
+	syncLatency *metrics.Recorder
+	messageSize *metrics.Recorder
 }
 
 const (
@@ -26,10 +29,18 @@ const (
 func New(capacity float64, refillRate float64) *CRDT {
 	p2pNode := p2p.NewNode(context.Background(), "crdt-buckets")
 	bucketCache := newBucketCache(p2pNode.Host.String(), capacity, refillRate)
+	syncLatency := metrics.NewRecorder("SYNC-LATENCY", "ms", func(v any) float64 {
+		return float64(v.(time.Duration).Milliseconds())
+	})
+	messageSize := metrics.NewRecorder("MESSAGE-SIZE", "B", func(v any) float64 {
+		return float64(v.(int))
+	})
 	crdt := CRDT{
-		node:    p2pNode,
-		buckets: bucketCache,
-		deltas:  newCache(MaxBatchSize),
+		node:        p2pNode,
+		buckets:     bucketCache,
+		deltas:      newCache(MaxBatchSize),
+		syncLatency: syncLatency,
+		messageSize: messageSize,
 	}
 	crdt.start()
 	return &crdt
@@ -51,14 +62,17 @@ func (crdt *CRDT) AllowRequest(userId string) bool {
 func (crdt *CRDT) merge(data []byte) {
 	message := utils.Decode[map[string]*BucketState](data)
 	for userId := range message {
-		crdt.buckets.getOrCreateBucket(userId).merge(message[userId])
+		delay := crdt.buckets.getOrCreateBucket(userId).merge(message[userId])
+		crdt.syncLatency.Record(delay)
 	}
 }
 
 func (crdt *CRDT) broadcast() {
 	crdt.mutex.Lock()
 	defer crdt.mutex.Unlock()
-	crdt.node.Broadcast(utils.Encode(toMessage(crdt.deltas)))
+	data := utils.Encode(toMessage(crdt.deltas))
+	crdt.messageSize.Record(len(data))
+	crdt.node.Broadcast(data)
 }
 
 func (crdt *CRDT) start() {
@@ -77,6 +91,14 @@ func (crdt *CRDT) start() {
 		defer ticker.Stop()
 		for range ticker.C {
 			crdt.buckets.refreshDisk()
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			crdt.syncLatency.LogSnapshot()
+			crdt.messageSize.LogSnapshot()
 		}
 	}()
 }
