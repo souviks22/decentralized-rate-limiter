@@ -119,10 +119,10 @@ Performance benchmarks of the decentralized rate limiter under realistic load:
 
 | Metric                           | Result                         |
 | -------------------------------- | ------------------------------ |
-| **Throughput**                   | 🚀 2,000 requests/sec per node |
-| **p99 Response Time**            | ⚡ 1.5 ms                       |
-| **p99 CRDT Sync Latency**        | 🔄 1 ms (gossip convergence)   |
-| **p99 Message Bandwidth**        | 📦 2 KB (per gossip)           |
+| **Throughput**                   | 🚀 3,000 requests/sec          |
+| **p99 Response Time**            | ⚡ 2 ms                         |
+| **p99 CRDT Sync Latency**        | 🔄 2 ms (gossip convergence)   |
+| **p99 Message Bandwidth**        | 📦 3 KB (per gossip)           |
 
 > 💡 Benchmarks were measured with a 3-node libp2p mesh using [Vegeta](https://github.com/tsenart/vegeta) and internal latency logging.
 
@@ -138,4 +138,4 @@ Performance benchmarks of the decentralized rate limiter under realistic load:
 
 * [libp2p Docs](https://libp2p.io)
 * [CRDTs Explained](https://crdt.tech/)
-* [Go LRU Cache](https://github.com/hashicorp/golang-lru)]
+* [Go LRU Cache](https://github.com/hashicorp/golang-lru)
