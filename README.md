@@ -3,7 +3,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/souviks22/decentralized-rate-limiter)](https://goreportcard.com/report/github.com/souviks22/decentralized-rate-limiter)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Made with Go](https://img.shields.io/badge/Made%20with-Go-1f425f.svg)](https://golang.org)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/souviks22/decentralized-rate-limiter/pulls)
 
 > A fault-tolerant, decentralized, and CRDT-synced rate limiter for large-scale distributed systems — designed to scale to billions of users with local failover and eventual consistency.
 
