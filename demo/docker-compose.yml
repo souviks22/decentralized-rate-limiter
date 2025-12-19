@@ -4,11 +4,15 @@ networks:
 
 services:
   rate-limiter-bootstrap:
-    build: .
+    build:
+      context: . 
+      dockerfile: ./demo/Dockerfile
     networks:
       - p2p
+    environment:
+      - CACHE_DIRECTORY=./data
     volumes:
-      - ./data:/data
+      - ./demo/data:/data
 
   rate-limiter:
     build: .
@@ -21,7 +25,7 @@ services:
     deploy:
       replicas: 3
     volumes:
-      - ./data:/data
+      - ./demo/data:/data
 
   nginx:
     image: nginx:latest
