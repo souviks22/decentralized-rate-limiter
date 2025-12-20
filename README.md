@@ -5,21 +5,50 @@
 [![Made with Go](https://img.shields.io/badge/Made%20with-Go-1f425f.svg)](https://golang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/souviks22/decentralized-rate-limiter/issues)
 
-> A fault-tolerant, decentralized, and CRDT-synced rate limiter for large-scale distributed systems — designed to scale to billions of users with local failover and eventual consistency.
+> Most rate limiters assume a central truth.
+> This one assumes failure.
+
+This project explores how rate limiting behaves when **central coordination is expensive, unreliable, or undesirable** — across regions, failures, and partitions. Instead of enforcing a single global counter, each node makes **local decisions** and reconciles state **eventually**, using CRDTs and peer-to-peer gossip.
+
+The goal is simple but strict:
+**never block locally, never trust globally, and still converge.**
 
 ---
 
-## 🚀 Features
+## Why This Exists
 
-- ⏳ **Token Bucket Algorithm** for burst-friendly traffic control.
-- 🧠 **CRDT-powered synchronization** — conflict-free, peer-to-peer.
-- 💾 **LRU cache with disk persistence** — supports both active and inactive users efficiently.
-- 📡 **libp2p gossip** — decentralized and self-healing.
-- 🔒 **Resilience to partitions and node failure**.
+Traditional rate limiters (Redis, centralized gateways) work well — until:
+
+* cross-region latency dominates the hot path,
+* a single dependency becomes a blast radius,
+* or failure handling turns into policy ambiguity.
+
+In large distributed systems, **availability often matters more than precision**.
+This rate limiter is designed for those environments.
+
+Each node:
+
+* limits requests **locally**,
+* survives **network partitions**,
+* and synchronizes state **without a leader**.
+
+Precision is relaxed. Safety and continuity are not.
 
 ---
 
-## 📸 Architecture
+## High-Level Design
+
+At a high level, every node is fully capable of enforcing limits on its own.
+
+```
+Client → Any Node → Local Decision → Eventual Reconciliation
+```
+
+No node blocks waiting for global state. Synchronization happens **off the hot path**.
+
+---
+
+## How It Works (End-to-End)
 
 ```
                            ┌──────────────────────────┐
@@ -58,84 +87,167 @@
 
 ```
 
-- **Each node** locally limits requests and syncs token deltas with others via gossip.
-- **State merging** is done using CRDT-style max-based reconciliation.
+### The important detail
 
-
----
-
-## 🔧 Installation
-
-```bash
-git clone https://github.com/souviks22/decentralized-rate-limiter.git
-cd decentralized-rate-limiter
-go mod tidy
-go run main.go
-````
-
-> Requires Go 1.20+ and a writable `/data/<node_id>` directory for disk persistence. Optionally, `Docker` configurations for bootstrap node and network nodes are also available.
+**The request path never waits for gossip.**
+If the node is alive, it answers.
 
 ---
 
-## 🧪 Example Usage
+## Core Components & Why They Exist
+
+### 🪣 Token Bucket (Local Authority)
+
+Each user is governed by a standard token bucket:
+
+* capacity for bursts,
+* refill rate for sustained traffic.
+
+This is deliberately simple:
+
+* predictable latency,
+* constant-time decisions,
+* easy to reason about under load.
+
+Thread safety is explicit — no hidden concurrency tricks.
+
+---
+
+### 🧠 CRDT Synchronization (Global Convergence)
+
+Local decisions generate **deltas**, not full state.
+
+Why deltas?
+
+* smaller payloads,
+* less merge ambiguity,
+* faster convergence.
+
+CRDT merges are:
+
+* commutative,
+* idempotent,
+* monotonic.
+
+This guarantees that:
+
+> even if messages are duplicated, delayed, or reordered, nodes eventually agree.
+
+Exact precision is not promised.
+**Bounded divergence is.**
+
+---
+
+### 📡 libp2p Gossip (Decentralization Without Orchestration)
+
+There is:
+
+* no leader,
+* no coordinator,
+* no central broker.
+
+Nodes discover peers and exchange updates via libp2p gossip.
+Failures are treated as routine, not exceptional.
+
+If a node disappears:
+
+* others continue,
+* state reconverges when it returns.
+
+---
+
+### 💾 LRU + Disk (Scaling Beyond Memory)
+
+Keeping billions of users in memory is unrealistic.
+
+So the system:
+
+* keeps **hot buckets in an in-memory LRU**,
+* evicts cold buckets to **disk**,
+* reloads lazily on demand.
+
+This keeps:
+
+* memory bounded,
+* hot paths fast,
+* cold users cheap.
+
+Durability is pragmatic, not transactional.
+
+---
+
+## Performance Characteristics
+
+Measured on a small libp2p mesh (3 nodes):
+
+| Metric                 | Observation             |
+| ---------------------- | ----------------------- |
+| Throughput per node    | ~3,000 req/sec          |
+| p99 request latency    | ~2 ms                   |
+| p99 gossip convergence | ~2 ms                   |
+| Gossip payload size    | ~3 KB                   |
+
+These numbers matter less than *where latency lives*:
+
+* request path → local only,
+* synchronization → async.
+
+---
+
+## Failure Semantics (Explicit)
+
+This system chooses availability over strict correctness.
+
+* **Network partition** → nodes continue independently
+* **Node crash** → local state lost, global state recovers
+* **Delayed gossip** → temporary over-allowing possible
+
+This is intentional.
+
+If your use case requires **strict global enforcement**, this is not the right tool.
+
+---
+
+## Example Usage
 
 ```go
-limiter := limiter.New(100.0, 10.0) // capacity = 100, refillRate = 10 tokens/sec
+limiter := drl.NewRateLimiter(100, 10) // capacity, refill rate
 
 if limiter.AllowRequest("user-123") {
-    // ✅ Proceed with request
+    // request proceeds
 } else {
-    // ❌ Rate limited
+    // rate limited locally
 }
 ```
 
----
-
-## 🧠 Internals
-
-### 🪣 TokenBucket
-
-* Uses capacity, refill rate, and timestamps to refill tokens.
-* Thread-safe with mutex locks.
-* Supports delta-based `merge()` for CRDT sync.
-
-### 🧠 CRDT
-
-* Batched updates pushed via libp2p `Broadcast()`.
-* Incoming deltas merged every `100ms`.
-* Cold buckets are periodically flushed to disk.
-
-### 🧱 Disk + LRU
-
-* Evicted buckets go to disk for durability.
-* Reloaded lazily when requested again.
-* Guarantees hot-path speed and cold-path persistence.
+The API stays boring on purpose.
+The complexity lives inside.
 
 ---
 
-## 📊 Benchmark & Testing
+## When You Should (and Shouldn’t) Use This
 
-Performance benchmarks of the decentralized rate limiter under realistic load:
+**Good fit if:**
 
-| Metric                           | Result                         |
-| -------------------------------- | ------------------------------ |
-| **Throughput**                   | 🚀 3,000 requests/sec          |
-| **p99 Response Time**            | ⚡ 2 ms                         |
-| **p99 CRDT Sync Latency**        | 🔄 2 ms (gossip convergence)   |
-| **p99 Message Bandwidth**        | 📦 3 KB (per gossip)           |
+* low latency matters more than perfect precision,
+* regions must operate independently,
+* failures are common, not exceptional.
 
-> 💡 Benchmarks were measured with a 3-node libp2p mesh using [Vegeta](https://github.com/tsenart/vegeta) and internal latency logging.
+**Not a good fit if:**
 
-### 🔬 Benchmark Methodology
-
-* Simulated 1,000 users sending rate-limited requests via a round-robin NGINX load balancer.
-* Gossip frequency: every 100ms or 100 updates.
-* Metrics tracked per node (not centralized), using in-memory sampling.
+* every request must respect a single global counter,
+* over-allowing is unacceptable,
+* centralized infrastructure is cheap and reliable for you.
 
 ---
 
-## 📎 Links
+## Closing Thought
 
-* [libp2p Docs](https://libp2p.io)
-* [CRDTs Explained](https://crdt.tech/)
-* [Go LRU Cache](https://github.com/hashicorp/golang-lru)
+This project is not about replacing Redis.
+
+It’s about asking a harder question:
+
+> *What does rate limiting look like when the system itself refuses to be centralized?*
+
+If that question matters to you, this project might too.
+
