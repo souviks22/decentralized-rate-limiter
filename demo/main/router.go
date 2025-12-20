@@ -1,4 +1,4 @@
-package router
+package main
 
 import (
 	"net/http"
@@ -27,7 +27,7 @@ func PingHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "pong"})
 }
 
-func Setup() *gin.Engine {
+func SetupRouter() *gin.Engine {
 	r := gin.Default()
 	r.Use(RateLimiter(10, 1))
 	apiGroup := r.Group("/api")

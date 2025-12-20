@@ -4,28 +4,26 @@ networks:
 
 services:
   rate-limiter-bootstrap:
-    build:
-      context: . 
-      dockerfile: ./demo/Dockerfile
+    build: .
     networks:
       - p2p
     environment:
       - CACHE_DIRECTORY=./data
     volumes:
-      - ./demo/data:/data
+      - ./data:/data
 
   rate-limiter:
     build: .
     networks:
       - p2p
     environment:
-      - BOOTSTRAP_PEER=/ip4/172.18.0.2/tcp/40343/p2p/12D3KooWR1yxKWRyVGuNjdnZQegQid8vVm96d2CJhsj8QR4KbReA
+      - BOOTSTRAP_PEER=/ip4/172.18.0.2/tcp/39721/p2p/12D3KooWBXQWYrxR77ehLnd3Lzoie83EhtVJ1cqk17vLW4vsdfq7
       - CACHE_DIRECTORY=./data
       - METRICS_ENABLED=true
     deploy:
       replicas: 3
     volumes:
-      - ./demo/data:/data
+      - ./data:/data
 
   nginx:
     image: nginx:latest
