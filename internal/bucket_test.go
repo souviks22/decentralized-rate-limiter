@@ -6,8 +6,9 @@ import (
 )
 
 func TestBucketRefill(t *testing.T) {
-	bucket := NewTokenBucket(5, 1)
-	for range 10 {
+	capacity, refillRate := 10.0, 1.0
+	bucket := NewTokenBucket(capacity, refillRate)
+	for range 20 {
 		if !bucket.Consume() {
 			t.Error("Bucker didn't refill at right time")
 		}
@@ -16,27 +17,29 @@ func TestBucketRefill(t *testing.T) {
 }
 
 func TestTokenExhaustion(t *testing.T) {
-	bucket := NewTokenBucket(5, 1)
-	count := 0
-	for range 10 {
+	capacity, refillRate := 10.0, 1.0
+	bucket := NewTokenBucket(capacity, refillRate)
+	successfulConsumptions := 0
+	for range 20 {
 		if bucket.Consume() {
-			count += 1
+			successfulConsumptions += 1
 		}
 	}
-	if count == 10 {
+	if successfulConsumptions == 20 {
 		t.Error("Tokens didn't exhaust")
 	}
 }
 
 func TestBucketMerge(t *testing.T) {
-	bucket := NewTokenBucket(5, 1)
+	capacity, refillRate := 10.0, 1.0
+	bucket := NewTokenBucket(capacity, refillRate)
 	incoming := &BucketState{
-		UsableTokens: 6,
+		UsableTokens: 11,
 		UsedTokens:   1,
 		LastRefilled: time.Now().UTC(),
 	}
 	bucket.Merge(incoming)
-	if bucket.UsableTokens != 6 || bucket.UsedTokens != 1 {
+	if bucket.UsableTokens != 11 || bucket.UsedTokens != 1 {
 		t.Error("Bucket merging failed")
 	}
 }
