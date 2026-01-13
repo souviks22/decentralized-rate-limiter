@@ -3,7 +3,7 @@ package internal
 import "github.com/dgraph-io/badger/v4"
 
 type Disk struct {
-	DB *badger.DB
+	DB *badger.DB `json:"db"`
 }
 
 func NewDiskDB(path string) *Disk {
@@ -17,23 +17,33 @@ func NewDiskDB(path string) *Disk {
 	}
 }
 
-func (disk *Disk) Save(userID string, bucket []byte) error {
-	return disk.DB.Update(func(txn *badger.Txn) error {
-		return txn.Set([]byte(userID), bucket)
-	})
+func (disk *Disk) Save(userID string, bucket *TokenBucket) {
+	encodedUserID := []byte(userID)
+	encodedBucket := Encode(bucket)
+	insertBucket := func(txn *badger.Txn) error {
+		return txn.Set(encodedUserID, encodedBucket)
+	}
+	disk.DB.Update(insertBucket)
 }
 
-func (disk *Disk) Get(userID string) ([]byte, bool) {
-	var data []byte
-	err := disk.DB.View(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte(userID))
+func (disk *Disk) Get(userID string) (*TokenBucket, bool) {
+	encodedUserID := []byte(userID)
+	var encodedBucket []byte
+	retrieveBucket := func(txn *badger.Txn) error {
+		item, err := txn.Get(encodedUserID)
 		if err != nil {
 			return err
 		}
-		return item.Value(func(val []byte) error {
-			data = val
+		extractBucket := func(val []byte) error {
+			encodedBucket = val
 			return err
-		})
-	})
-	return data, err == nil
+		}
+		return item.Value(extractBucket)
+	}
+	err := disk.DB.View(retrieveBucket)
+	if err != nil {
+		return nil, false
+	}
+	decodedBucket := Decode[*TokenBucket](encodedBucket)
+	return decodedBucket, true
 }
