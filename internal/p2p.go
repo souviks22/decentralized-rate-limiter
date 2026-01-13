@@ -15,25 +15,25 @@ import (
 )
 
 type P2PNode struct {
-	Host      peer.ID
-	Topic     *pubsub.Topic
-	Sub       *pubsub.Subscription
-	Multiaddr string
-	DHT       *dht.IpfsDHT
+	Host      peer.ID              `json:"host"`
+	Topic     *pubsub.Topic        `json:"topic"`
+	Sub       *pubsub.Subscription `json:"sub"`
+	Multiaddr string               `json:"multiaddr"`
+	DHT       *dht.IpfsDHT         `json:"dht"`
 }
 
 const Rendezvous = "decentralized-rate-limiter"
 
 func NewP2PNode(ctx context.Context, topicName string) *P2PNode {
-	h, err := libp2p.New()
+	host, err := libp2p.New()
 	if err != nil {
 		panic(err)
 	}
-	ps, err := pubsub.NewGossipSub(ctx, h)
+	gossip, err := pubsub.NewGossipSub(ctx, host)
 	if err != nil {
 		panic(err)
 	}
-	topic, err := ps.Join(topicName)
+	topic, err := gossip.Join(topicName)
 	if err != nil {
 		panic(err)
 	}
@@ -41,77 +41,77 @@ func NewP2PNode(ctx context.Context, topicName string) *P2PNode {
 	if err != nil {
 		panic(err)
 	}
-	address := h.Addrs()[4].String() + "/p2p/" + h.ID().String()
-	log.Println("P2P node started at:", address)
-	kadDHT := SetupPeerDiscovery(ctx, h)
+	multiaddr := host.Addrs()[4].String() + "/p2p/" + host.ID().String()
+	dht := SetupPeerDiscovery(ctx, host)
+	log.Println("P2P node started at:", multiaddr)
 	return &P2PNode{
-		Host:      h.ID(),
+		Host:      host.ID(),
 		Topic:     topic,
 		Sub:       sub,
-		Multiaddr: address,
-		DHT:       kadDHT,
+		Multiaddr: multiaddr,
+		DHT:       dht,
 	}
 }
 
-func SetupPeerDiscovery(ctx context.Context, h host.Host) *dht.IpfsDHT {
-	kadDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeServer))
+func SetupPeerDiscovery(ctx context.Context, host host.Host) *dht.IpfsDHT {
+	kadDht, err := dht.New(ctx, host, dht.Mode(dht.ModeServer))
 	if err != nil {
 		panic(err)
 	}
-	ConnectToBootstrapPeer(ctx, h)
-	err = kadDHT.Bootstrap(ctx)
+	ConnectToBootstrapPeer(ctx, host)
+	err = kadDht.Bootstrap(ctx)
 	if err != nil {
 		panic(err)
 	}
-	routingDiscovery := routing.NewRoutingDiscovery(kadDHT)
-	routingDiscovery.Advertise(ctx, Rendezvous)
-	go func() {
-		peerChan, _ := routingDiscovery.FindPeers(ctx, Rendezvous)
-		for p := range peerChan {
-			if p.ID == h.ID() {
-				continue
-			}
-			h.Connect(ctx, p)
-		}
-	}()
-	return kadDHT
+	go ConnectToNearbyPeers(ctx, host, kadDht)
+	return kadDht
 }
 
-func ConnectToBootstrapPeer(ctx context.Context, h host.Host) {
-	bootstrapPeer := os.Getenv("BOOTSTRAP_PEER")
-	if bootstrapPeer == "" {
+func ConnectToBootstrapPeer(ctx context.Context, host host.Host) {
+	bootstrap := os.Getenv("BOOTSTRAP_PEER")
+	if bootstrap == "" {
 		return
 	}
-	addr, err := multiaddr.NewMultiaddr(bootstrapPeer)
+	multiaddr, err := multiaddr.NewMultiaddr(bootstrap)
 	if err != nil {
 		panic(err)
 	}
-	p, err := peer.AddrInfoFromP2pAddr(addr)
+	bootPeer, err := peer.AddrInfoFromP2pAddr(multiaddr)
 	if err != nil {
 		panic(err)
 	}
-	err = h.Connect(ctx, *p)
+	err = host.Connect(ctx, *bootPeer)
 	if err != nil {
 		panic(err)
 	}
-	log.Println("Connected to:", p.ID)
+	log.Println("Connected to:", bootPeer.ID)
 }
 
-func (n *P2PNode) Broadcast(data []byte) error {
-	return n.Topic.Publish(context.Background(), data)
-}
-
-func (n *P2PNode) ReadLoop(handle func([]byte)) {
-	go func() {
-		for {
-			msg, err := n.Sub.Next(context.Background())
-			if err != nil {
-				continue
-			}
-			if msg.ReceivedFrom == n.Host {
-				continue
-			}
-			handle(msg.Data)
+func ConnectToNearbyPeers(ctx context.Context, host host.Host, kadDht *dht.IpfsDHT) {
+	routingDiscovery := routing.NewRoutingDiscovery(kadDht)
+	routingDiscovery.Advertise(ctx, Rendezvous)
+	peers, _ := routingDiscovery.FindPeers(ctx, Rendezvous)
+	for peer := range peers {
+		if peer.ID == host.ID() {
+			continue
 		}
-	}()
+		host.Connect(ctx, peer)
+	}
+}
+
+func (node *P2PNode) Broadcast(data []byte) error {
+	return node.Topic.Publish(context.Background(), data)
+}
+
+func (node *P2PNode) ReadLoop(callback func([]byte)) {
+	for {
+		message, err := node.Sub.Next(context.Background())
+		if err != nil {
+			continue
+		}
+		if message.ReceivedFrom == node.Host {
+			continue
+		}
+		callback(message.Data)
+	}
 }

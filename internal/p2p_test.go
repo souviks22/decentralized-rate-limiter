@@ -16,7 +16,7 @@ func TestConnectivity(t *testing.T) {
 
 func TestGossipMessaging(t *testing.T) {
 	bootstrap, node := createNetwork()
-	bootstrap.ReadLoop(func(b []byte) {
+	go bootstrap.ReadLoop(func(b []byte) {
 		for i := range b {
 			if b[i] != byte(i) {
 				t.Error("Data corrupted")
