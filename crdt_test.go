@@ -1,13 +1,25 @@
 package drl
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestRateLimiter(t *testing.T) {
-	limiter := NewRateLimiter(5, 1)
+	dir := "./data"
+	os.Mkdir(dir, 0755)
+	os.Setenv("CACHE_DIRECTORY", dir)
+	limiter := NewRateLimiter(10, 1)
+	err := true
 	for range 100 {
 		if !limiter.AllowRequest("souvik") {
-			return
+			err = false
+			break
 		}
 	}
-	t.Error("Request wasn't rate limited")
+	os.Unsetenv("CACHE_DIRECTORY")
+	os.RemoveAll(dir)
+	if err {
+		t.Error("Request wasn't rate limited")
+	}
 }
