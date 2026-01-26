@@ -1,50 +1,61 @@
-# 🌐 Decentralized Rate Limiter
+# Decentralized Rate Limiter
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/souviks22/decentralized-rate-limiter)](https://goreportcard.com/report/github.com/souviks22/decentralized-rate-limiter)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Made with Go](https://img.shields.io/badge/Made%20with-Go-1f425f.svg)](https://golang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/souviks22/decentralized-rate-limiter/issues)
 
-> Most rate limiters assume a central truth.
-> This one assumes failure.
 
-This project explores how rate limiting behaves when **central coordination is expensive, unreliable, or undesirable** — across regions, failures, and partitions. Instead of enforcing a single global counter, each node makes **local decisions** and reconciles state **eventually**, using CRDTs and peer-to-peer gossip.
+> **A decentralized rate limiter that continues to function under network partitions, built to study why centralized Redis-based designs break at scale.**
 
-The goal is simple but strict:
-**never block locally, never trust globally, and still converge.**
+Most production rate limiters assume a **central truth** — a single Redis instance, a leader, or a globally consistent counter.
+
+This project assumes the opposite:
+**coordination is expensive, failures are normal, and partitions happen.**
+
+Each node enforces rate limits **locally**, never blocking on global state, and reconciles usage **eventually** using CRDTs and peer-to-peer gossip.
+
+**Design goal**
+
+> *Never block locally, never trust globally — and still converge.*
+
+This design targets infra teams operating across regions where availability and latency matter more than strict global enforcement.
 
 ---
 
-## Why This Exists
+## Why This Exists (and What Breaks in Practice)
 
-Traditional rate limiters (Redis, centralized gateways) work well — until:
+Centralized rate limiting (Redis, API gateways, single coordinators) works well — **until it doesn’t**:
 
-* cross-region latency dominates the hot path,
+* cross-region latency leaks into the hot path,
 * a single dependency becomes a blast radius,
-* or failure handling turns into policy ambiguity.
+* failure handling turns into policy ambiguity (“should we allow or deny?”).
 
-In large distributed systems, **availability often matters more than precision**.
-This rate limiter is designed for those environments.
+In large distributed systems, **availability often matters more than perfect precision**.
 
-Each node:
+This project explores a different trade-off:
 
-* limits requests **locally**,
-* survives **network partitions**,
-* and synchronizes state **without a leader**.
-
-Precision is relaxed. Safety and continuity are not.
+* allow **temporary divergence**,
+* guarantee **eventual convergence**,
+* keep the request path **fast and local**.
 
 ---
 
-## High-Level Design
+## The Core Idea (High-Level)
 
-At a high level, every node is fully capable of enforcing limits on its own.
+Every node is a full authority for rate limiting.
 
 ```
-Client → Any Node → Local Decision → Eventual Reconciliation
+Client → Any Node → Local Decision → Async Reconciliation
 ```
 
-No node blocks waiting for global state. Synchronization happens **off the hot path**.
+* No global coordinator
+* No synchronous cross-node calls
+* No blocking on consensus
+
+Synchronization happens **off the hot path**.
+
+If the node is alive, it answers.
 
 ---
 
@@ -57,13 +68,13 @@ No node blocks waiting for global state. Synchronization happens **off the hot p
                                         │
                                         ▼
                          ┌────────────────────────────────┐
-                         │    Peer Node (e.g., Node A)    │
+                         │        Peer Node (A)           │
                          │ ────────────────────────────── │
                          │  1. Receive userID request     │
-                         │  2. Check in-memory LRU cache  │
+                         │  2. Check in-memory LRU        │
                          │  3. If miss, load from disk    │
-                         │  4. Call TokenBucket.consume() │
-                         │  5. Add to CRDT delta cache    │
+                         │  4. TokenBucket.consume()      │
+                         │  5. Record CRDT delta          │
                          └────────────┬───────────────────┘
                                       │
         ┌─────────────────────────────┼────────────────────────────┐
@@ -84,61 +95,63 @@ No node blocks waiting for global state. Synchronization happens **off the hot p
                                      │    Peer Node B      │◄───────────────▶│     Peer Node C     │
                                      │  (Same architecture)│     P2P Sync    │  (Same architecture)│
                                      └─────────────────────┘                 └─────────────────────┘
-
 ```
 
-### The important detail
+### Critical invariant
 
-**The request path never waits for gossip.**
-If the node is alive, it answers.
+> **The request path never waits for gossip.**
+
+Local decisions are final *for that node*.
 
 ---
 
-## Core Components & Why They Exist
+## Design Components & Trade-offs
 
-### 🪣 Token Bucket (Local Authority)
+### Token Bucket (Local Authority)
 
 Each user is governed by a standard token bucket:
 
-* capacity for bursts,
-* refill rate for sustained traffic.
+* burst capacity,
+* steady refill rate.
 
-This is deliberately simple:
+Why keep this simple:
 
-* predictable latency,
 * constant-time decisions,
-* easy to reason about under load.
+* predictable latency,
+* easy reasoning under load.
 
-Thread safety is explicit — no hidden concurrency tricks.
+No hidden concurrency tricks. Thread safety is explicit.
 
 ---
 
-### 🧠 CRDT Synchronization (Global Convergence)
+### CRDT Deltas (Eventual Global Convergence)
 
-Local decisions generate **deltas**, not full state.
+Nodes exchange **deltas**, not full state.
 
-Why deltas?
+Why deltas:
 
-* smaller payloads,
+* small payloads,
 * less merge ambiguity,
 * faster convergence.
 
-CRDT merges are:
+CRDT properties:
 
-* commutative,
-* idempotent,
-* monotonic.
+* commutative
+* idempotent
+* monotonic
 
-This guarantees that:
+This guarantees convergence even under:
 
-> even if messages are duplicated, delayed, or reordered, nodes eventually agree.
+* message loss,
+* duplication,
+* reordering.
 
-Exact precision is not promised.
-**Bounded divergence is.**
+**Exact precision is not promised.
+Bounded divergence is.**
 
 ---
 
-### 📡 libp2p Gossip (Decentralization Without Orchestration)
+### libp2p Gossip (Coordination Without Leaders)
 
 There is:
 
@@ -146,25 +159,24 @@ There is:
 * no coordinator,
 * no central broker.
 
-Nodes discover peers and exchange updates via libp2p gossip.
-Failures are treated as routine, not exceptional.
+Nodes discover peers and exchange deltas via libp2p gossip.
 
-If a node disappears:
+Failures are treated as routine:
 
-* others continue,
-* state reconverges when it returns.
+* if a node disappears, others continue,
+* when it returns, state reconverges.
 
 ---
 
-### 💾 LRU + Disk (Scaling Beyond Memory)
+### LRU + Disk (Scaling Beyond Memory)
 
-Keeping billions of users in memory is unrealistic.
+Keeping all users in memory doesn’t scale.
 
 So the system:
 
-* keeps **hot buckets in an in-memory LRU**,
+* keeps hot buckets in an **in-memory LRU**,
 * evicts cold buckets to **disk**,
-* reloads lazily on demand.
+* reloads lazily on access.
 
 This keeps:
 
@@ -176,42 +188,70 @@ Durability is pragmatic, not transactional.
 
 ---
 
-## Performance Characteristics
+## Performance Snapshot (3-node mesh)
 
-Measured on a small libp2p mesh (3 nodes):
+| Metric                 | Observation    |
+| ---------------------- | -------------- |
+| Throughput per node    | ~3,000 req/sec |
+| p99 request latency    | ~2 ms          |
+| p99 gossip convergence | ~2 ms          |
+| Gossip payload size    | ~3 KB          |
 
-| Metric                 | Observation             |
-| ---------------------- | ----------------------- |
-| Throughput per node    | ~3,000 req/sec          |
-| p99 request latency    | ~2 ms                   |
-| p99 gossip convergence | ~2 ms                   |
-| Gossip payload size    | ~3 KB                   |
+Interpretation:
 
-These numbers matter less than *where latency lives*:
-
-* request path → local only,
-* synchronization → async.
+* request latency is dominated by **local execution**,
+* coordination cost is **asynchronous and amortized**.
 
 ---
 
-## Failure Semantics (Explicit)
+## Failure Semantics (Explicit by Design)
 
-This system chooses availability over strict correctness.
+This system chooses **availability over strict correctness**.
 
-* **Network partition** → nodes continue independently
-* **Node crash** → local state lost, global state recovers
+* **Network partitions** → nodes operate independently
+* **Node crashes** → local state lost, global state reconverges
 * **Delayed gossip** → temporary over-allowing possible
 
-This is intentional.
+Observed behavior:
 
-If your use case requires **strict global enforcement**, this is not the right tool.
+* ~15% bounded over-acceptance at 3 nodes
+* grows roughly linearly with node count
+
+This is acceptable for:
+
+* abuse mitigation,
+* fairness control,
+* soft enforcement.
+
+It is **not acceptable** for strict accounting.
+
+This complexity is the cost paid to remove a global coordinator from the hot path.
+
+---
+
+## Design Walkthrough (Optional Deep Dive)
+
+For a longer-form architectural walkthrough and design rationale, see:
+[**High-Level Design of a Decentralized Rate Limiter**](https://medium.com/@souviksarkar2k3/high-level-design-of-a-decentralized-rate-limiter-1bcc33154ce9)
+
+---
+
+## When *Not* to Use This
+
+This design is **not** a good fit if:
+
+* every request must respect a single global counter,
+* over-allowing is unacceptable (e.g., billing),
+* centralized infrastructure is cheap and reliable for you.
+
+In those cases, a Redis-backed or coordinator-based design is simpler and safer.
 
 ---
 
 ## Example Usage
 
 ```go
-limiter := drl.NewRateLimiter(100, 10) // capacity, refill rate
+limiter := drl.NewRateLimiter(10, 1) // capacity, refill rate
 
 if limiter.AllowRequest("user-123") {
     // request proceeds
@@ -220,34 +260,20 @@ if limiter.AllowRequest("user-123") {
 }
 ```
 
-The API stays boring on purpose.
+The API stays intentionally boring.
 The complexity lives inside.
 
 ---
 
-## When You Should (and Shouldn’t) Use This
+## What This Project Is (and Isn’t)
 
-**Good fit if:**
+This project is **not** about replacing Redis.
 
-* low latency matters more than perfect precision,
-* regions must operate independently,
-* failures are common, not exceptional.
-
-**Not a good fit if:**
-
-* every request must respect a single global counter,
-* over-allowing is unacceptable,
-* centralized infrastructure is cheap and reliable for you.
-
----
-
-## Closing Thought
-
-This project is not about replacing Redis.
-
-It’s about asking a harder question:
+It’s about answering a harder question:
 
 > *What does rate limiting look like when the system itself refuses to be centralized?*
 
-If that question matters to you, this project might too.
+If that question matters in your environment, this design might be useful.
+
+
 
